@@ -1,0 +1,7 @@
+[package]
+name = "waypoints"
+version = "0.1.0"
+authors = ["trtsl@github"]
+edition = "2018"
+
+[dependencies]

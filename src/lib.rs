@@ -74,6 +74,7 @@
     broken_intra_doc_links
 )]
 
+use std::ops::Range;
 use std::sync::Condvar;
 use std::sync::{Arc, LockResult, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -135,23 +136,32 @@ impl Waypoints {
     /// Allow the waypoint to be passed if the current number matches exactly.  See
     /// [`Self::range`] for the `head_start` argument.
     pub fn point(&self, n: usize, head_start: Option<Duration>) -> Result<(), usize> {
-        self.range(n, n, head_start)
+        self.range(n..n + 1, head_start)
     }
 
-    /// Allow a waypoint to be passed if the current number is within the range (inclusive).  This
-    /// can be used to have multiple threads pass a waypoint concurrently rather than any
-    /// particular thread being advantaged.  Argument `head_start` represents the minimum amount of
-    /// time between calling this method and the next waypoint being allowed to pass.  The `Result`
-    /// is an `Err` if a another waypoint previously use the same waypoint number.
-    pub fn range(&self, l: usize, h: usize, head_start: Option<Duration>) -> Result<(), usize> {
-        let state_lck = self.cv.wait_while(self.state_lck(), |&mut (n, _)| n < l);
-        let mut state_lck = Self::into_guard(state_lck);
+    /// Allow a waypoint to be passed if the current number is within the range (inclusive lower
+    /// bound, exclusive upper bound).  This can be used to have multiple threads pass a waypoint
+    /// concurrently rather than any particular thread being advantaged.  Argument `head_start`
+    /// represents the minimum amount of time between calling this method and the next waypoint
+    /// being allowed to pass.  The `Result` is an `Err` if a another waypoint previously use the
+    /// same waypoint number.
+    pub fn range(&self, mut rng: Range<usize>, head_start: Option<Duration>) -> Result<(), usize> {
+        let (res, mut state_lck) = if rng.is_empty() {
+            let state_lck = self.state_lck();
+            (Err(state_lck.0), state_lck)
+        } else {
+            let l = rng.nth(0).expect("check rng is not empty");
+            let h = 1 + rng.last().unwrap_or(l);
+            let state_lck = self.cv.wait_while(self.state_lck(), |&mut (n, _)| n < l);
+            let state_lck = Self::into_guard(state_lck);
 
-        // check the state
-        let res = match *state_lck {
-            (n, _) if l <= n && n <= h => Ok(()),
-            (n, _) if n > h => Err(n),
-            _ => unreachable!("passed waypoint before schedule"),
+            // check the state
+            let res = match *state_lck {
+                (n, _) if l <= n && n < h => Ok(()),
+                (n, _) if n >= h => Err(n),
+                _ => unreachable!("passed waypoint before schedule"),
+            };
+            (res, state_lck)
         };
 
         // update state
@@ -215,7 +225,7 @@ mod tests {
                 w.point(7, None).unwrap();
                 v_point.lock().unwrap().push(9);
                 w.point(8, None).unwrap();
-                w.range(9, 11, None).unwrap();
+                w.range(9..12, None).unwrap();
                 for _ in 0..3 {
                     std::thread::yield_now();
                     v_range.lock().unwrap().push(11);
@@ -232,7 +242,7 @@ mod tests {
                 v_point.lock().unwrap().push(1);
                 v_point.lock().unwrap().push(2);
                 w.point(2, None).unwrap();
-                w.range(9, 11, None).unwrap();
+                w.range(9..12, None).unwrap();
                 for _ in 0..3 {
                     std::thread::yield_now();
                     v_range.lock().unwrap().push(22);
@@ -249,7 +259,7 @@ mod tests {
                 v_point.lock().unwrap().push(7);
                 v_point.lock().unwrap().push(8);
                 w.point(6, None).unwrap();
-                w.range(9, 11, None).unwrap();
+                w.range(9..12, None).unwrap();
                 for _ in 0..3 {
                     std::thread::yield_now();
                     v_range.lock().unwrap().push(33);

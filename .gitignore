@@ -1,4 +1,4 @@
-# The following combination of patterns adds all files
+# The following combination of patterns ignores all files
 # without an extension (i.e. no '.' in the file name)
 *
 !/**/

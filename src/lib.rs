@@ -71,7 +71,7 @@
     rust_2018_idioms,
     missing_debug_implementations,
     missing_docs,
-    broken_intra_doc_links
+    rustdoc::broken_intra_doc_links
 )]
 
 use std::ops::Range;
@@ -150,7 +150,7 @@ impl Waypoints {
             let state_lck = self.state_lck();
             (Err(state_lck.0), state_lck)
         } else {
-            let l = rng.nth(0).expect("check rng is not empty");
+            let l = rng.next().expect("check rng is not empty");
             let h = 1 + rng.last().unwrap_or(l);
             let state_lck = self.cv.wait_while(self.state_lck(), |&mut (n, _)| n < l);
             let state_lck = Self::into_guard(state_lck);
@@ -168,7 +168,7 @@ impl Waypoints {
         let (ref mut n, ref mut target_time) = *state_lck;
         *n += 1;
         let now = Instant::now();
-        let target_time_this = target_time.clone();
+        let target_time_this = *target_time;
         *target_time = match (*target_time, head_start) {
             (Some(t), Some(dt)) => Some(std::cmp::max(now, t) + dt),
             (Some(t), None) if now < t => Some(t),
@@ -188,6 +188,12 @@ impl Waypoints {
         self.cv.notify_all();
 
         res
+    }
+}
+
+impl Default for Waypoints {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -253,7 +259,6 @@ mod tests {
         threads.push({
             let v_point = v_point.clone();
             let v_range = v_range.clone();
-            let w = w.clone();
             std::thread::spawn(move || {
                 w.point(5, None).unwrap();
                 v_point.lock().unwrap().push(7);
@@ -294,7 +299,8 @@ mod tests {
         w.point(0, Some(dt)).unwrap();
         let dt_observed = t0.elapsed();
         assert!(
-            dt_n * dt_l < dt_observed && dt_observed < 1 * dt_h,
+            dt_n * dt_l < dt_observed && dt_observed < dt_h,
+            "{:?}",
             assert_msg
         );
 
@@ -303,6 +309,7 @@ mod tests {
         dt_n += 1;
         assert!(
             dt_n * dt_l < dt_observed && dt_observed < dt_n * dt_h,
+            "{:?}",
             assert_msg
         );
 
@@ -313,6 +320,7 @@ mod tests {
         dt_n += 1;
         assert!(
             dt_n * dt_l < dt_observed && dt_observed < dt_n * dt_h,
+            "{:?}",
             assert_msg
         );
 
@@ -320,6 +328,7 @@ mod tests {
         let dt_observed = t0.elapsed();
         assert!(
             dt_n * dt_l < dt_observed && dt_observed < dt_n * dt_h,
+            "{:?}",
             assert_msg
         );
 
@@ -329,6 +338,7 @@ mod tests {
         dt_n += 1;
         assert!(
             dt_n * dt_l < dt_observed && dt_observed < dt_n * dt_h,
+            "{:?}",
             assert_msg
         );
 
@@ -339,6 +349,7 @@ mod tests {
         dt_n += 5;
         assert!(
             dt_n * dt_l < dt_observed && dt_observed < dt_n * dt_h,
+            "{:?}",
             assert_msg
         );
     }
